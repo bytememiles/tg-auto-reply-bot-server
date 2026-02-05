@@ -44,6 +44,16 @@ Bot that listens in group chats and auto-replies when a message contains configu
    ```
    You should see: `{"ok":true,"result":true,"description":"Webhook was set"}`.
 
+   **Using Postman:**
+   - **Method:** `POST`
+   - **URL:** `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook`
+   - **Headers:** `Content-Type: application/json`
+   - **Body:** raw → JSON:
+     ```json
+     {"url": "https://<YOUR_VERCEL_APP_URL>/api/webhook"}
+     ```
+   Send the request; a successful response is `{"ok":true,"result":true,"description":"Webhook was set"}`.
+
 ### Verify the webhook is set correctly
 
 Call Telegram’s **getWebhookInfo** to see the current webhook URL:
@@ -57,6 +67,8 @@ https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo
 ```bash
 curl -s "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
 ```
+
+**Or in Postman:** `GET` → `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo` (no body).
 
 **In Postman:**  
 - Method: **GET**  
