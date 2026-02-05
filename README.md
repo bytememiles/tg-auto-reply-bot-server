@@ -44,6 +44,81 @@ Bot that listens in group chats and auto-replies when a message contains configu
    ```
    You should see: `{"ok":true,"result":true,"description":"Webhook was set"}`.
 
+### Verify the webhook is set correctly
+
+Call Telegram’s **getWebhookInfo** to see the current webhook URL:
+
+**In a browser (replace `<YOUR_BOT_TOKEN>` with your token):**
+```
+https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo
+```
+
+**Or with curl (Git Bash / WSL):**
+```bash
+curl -s "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo"
+```
+
+**In Postman:**  
+- Method: **GET**  
+- URL: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getWebhookInfo`
+
+**Expected response when the webhook is set:**
+```json
+{
+  "ok": true,
+  "result": {
+    "url": "https://tg-auto-reply-bot-server.vercel.app/api/webhook",
+    "has_custom_certificate": false,
+    "pending_update_count": 0
+  }
+}
+```
+
+If `result.url` matches your Vercel webhook URL, the webhook is set correctly. If `result.url` is empty, run the `setWebhook` step again.
+
+## Testing with Postman
+
+You can simulate Telegram sending an update to your webhook:
+
+1. **Method & URL**  
+   - Method: **POST**  
+   - URL: `https://tg-auto-reply-bot-server.vercel.app/api/webhook`  
+   (or `http://localhost:3000/api/webhook` if running locally.)
+
+2. **Headers**  
+   - `Content-Type`: `application/json`
+
+3. **Body**  
+   - Type: **raw** → **JSON**  
+   - Use a payload that matches Telegram’s [Update](https://core.telegram.org/bots/api#update) format. Example that triggers the "dog" keyword:
+
+   ```json
+   {
+     "update_id": 123456789,
+     "message": {
+       "message_id": 1,
+       "from": {
+         "id": 12345,
+         "is_bot": false,
+         "first_name": "Test"
+       },
+       "chat": {
+         "id": -1001234567890,
+         "type": "group"
+       },
+       "text": "dog"
+     }
+   }
+   ```
+
+4. **Send**  
+   - You should get **200 OK** with body `OK`.  
+   - If the keyword matches and `TELEGRAM_BOT_TOKEN` is set on Vercel, the bot will send a reply to the `chat_id` in the body (so use a real group chat ID if you want to see the reply in Telegram).
+
+**Tips:**  
+- Change `"text": "dog"` to test other keywords or non-matching text (you still get 200, but no reply).  
+- Use a real `chat.id` (e.g. your group’s ID) if you want the bot to post the reply in that chat.
+
 ## Add bot to a group
 
 1. Open your Telegram group.
