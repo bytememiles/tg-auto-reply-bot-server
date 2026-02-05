@@ -2,5 +2,9 @@
   "name": "tg-auto-reply-bot",
   "version": "1.0.0",
   "description": "Telegram bot that auto-replies in group chats when messages contain configured keywords",
-  "private": true
+  "private": true,
+  "dependencies": {
+    "@upstash/redis": "^1.36.0",
+    "openai": "^6.18.0"
+  }
 }

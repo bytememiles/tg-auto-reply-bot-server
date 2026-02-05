@@ -27,11 +27,9 @@ Bot that listens in group chats and auto-replies when a message contains configu
    vercel
    ```
 
-3. In the [Vercel dashboard](https://vercel.com/dashboard), open your project → **Settings** → **Environment Variables**. Add:
-   - Name: `TELEGRAM_BOT_TOKEN`  
-   - Value: your bot token  
+3. Add environment variables (see [Environment variables (Vercel)](#environment-variables-vercel) below).
 
-4. Redeploy so the function picks up the variable:
+4. Redeploy so the function picks up the variables:
    ```bash
    vercel --prod
    ```
@@ -53,6 +51,28 @@ Bot that listens in group chats and auto-replies when a message contains configu
      {"url": "https://<YOUR_VERCEL_APP_URL>/api/webhook"}
      ```
    Send the request; a successful response is `{"ok":true,"result":true,"description":"Webhook was set"}`.
+
+### Environment variables (Vercel)
+
+In the [Vercel dashboard](https://vercel.com/dashboard), open your project → **Settings** → **Environment Variables**. Add or update the following. You can set them for **Production**, **Preview**, and **Development** as needed.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | **Yes** | Bot API token from [@BotFather](https://t.me/botfather). |
+| `OPENAI_API_KEY` | **Yes** (for dynamic replies) | OpenAI API key. If missing, the bot falls back to static keyword replies only. |
+| `OPENAI_MODEL` | No | Model for replies (default: `gpt-4o-mini`). |
+| `FREQUENT_VULGAR_USER_IDS` | No | Comma-separated Telegram user IDs to treat as “frequent vulgar/mean” (sterner tone). Example: `12345,67890`. |
+| `KV_REST_API_URL` | No* | Upstash Redis REST URL (from Vercel Storage). Used for chat history and vulgar count. |
+| `KV_REST_API_TOKEN` | No* | Upstash Redis REST token (from Vercel Storage). |
+
+The app uses the **@upstash/redis** SDK and reads **`KV_REST_API_URL`** and **`KV_REST_API_TOKEN`** so you can use the env variables that Vercel injects when you add a Redis/KV store.
+
+**KV variables (chat history + vulgar count):**
+
+- If you added an **Upstash Redis** (or **Vercel KV**) store via **Vercel → Storage**, Vercel injects `KV_REST_API_URL` and `KV_REST_API_TOKEN` automatically. You do **not** need to add them by hand.
+- If they are missing, the bot still runs: OpenAI and static fallback work; only chat history and “frequent vulgar” **count** are skipped (no storage).
+
+After adding or changing variables, **redeploy** (e.g. **Deployments** → ⋮ on latest → **Redeploy**) so the function uses the new values.
 
 ### Verify the webhook is set correctly
 

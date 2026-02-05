@@ -43,6 +43,80 @@ const KEYWORD_REPLIES = {
     "I’m the “hey maybe don’t say that” bot 🚨 I auto-reply when certain words appear so the chat stays nice and not spicy.",
 };
 
+// Trigger keyword sets for OpenAI. Order: bot-positive, bot-negative, vulgar.
+const TRIGGER_BOT_POSITIVE = [
+  "good bot",
+  "thanks bot",
+  "love this bot",
+  "this bot is great",
+  "useful bot",
+  "nice bot",
+  "great bot",
+];
+const TRIGGER_BOT_NEGATIVE = [
+  "remove bot",
+  "delete bot",
+  "kill this bot",
+  "turn off bot",
+  "get rid of bot",
+  "shut this bot",
+  "disable bot",
+  "remove the bot",
+  "delete the bot",
+];
+const TRIGGER_VULGAR = [
+  "idiot",
+  "stupid",
+  "dumb",
+  "shut up",
+  "stfu",
+  "loser",
+  "trash",
+  "crap",
+  "wtf",
+  "wtff",
+  "bs",
+  "bullshit",
+  "hate",
+  "kill yourself",
+  "kys",
+  "shit",
+  "shitty",
+  "fuck",
+  "fucking",
+  "fck",
+  "fcking",
+  "fuk",
+  "damn",
+  "hell",
+  "asshole",
+  "bitch",
+  "piss",
+  "piss off",
+  "dog",
+  "rat",
+  "mouse",
+];
+
+/** Returns 'bot-positive' | 'bot-negative' | 'vulgar' | null. First match wins. */
+function getTriggerCategory(text) {
+  if (!text || typeof text !== "string") return null;
+  const normalizedInput = normalizeForMatch(text);
+  for (const phrase of TRIGGER_BOT_POSITIVE) {
+    const n = normalizeForMatch(phrase);
+    if (n && normalizedInput.includes(n)) return "bot-positive";
+  }
+  for (const phrase of TRIGGER_BOT_NEGATIVE) {
+    const n = normalizeForMatch(phrase);
+    if (n && normalizedInput.includes(n)) return "bot-negative";
+  }
+  for (const phrase of TRIGGER_VULGAR) {
+    const n = normalizeForMatch(phrase);
+    if (n && normalizedInput.includes(n)) return "vulgar";
+  }
+  return null;
+}
+
 async function sendTelegramMessage(token, chatId, text, replyToMessageId) {
   const url = `https://api.telegram.org/bot${token}/sendMessage`;
   const body = {
@@ -98,8 +172,15 @@ function getReplyForMessage(text) {
   return null;
 }
 
+const {
+  appendChatHistory,
+  getChatHistory,
+  isFrequentVulgar,
+  incrVulgarCount,
+} = require("../lib/kv");
+const { getReply, NOREPLY } = require("../lib/openai");
+
 module.exports = async function handler(req, res) {
-  // Always acknowledge so Telegram doesn't retry
   if (req.method !== "POST") {
     res.status(200).send("OK");
     return;
@@ -126,20 +207,63 @@ module.exports = async function handler(req, res) {
       return;
     }
 
-    const replyText = getReplyForMessage(message.text);
-    if (!replyText) {
-      res.status(200).send("OK");
-      return;
-    }
-
     const chatId = message.chat?.id;
     const messageId = message.message_id;
+    const userId = message.from?.id;
+    const username = message.from?.username || message.from?.first_name || "?";
+
     if (chatId == null) {
       res.status(200).send("OK");
       return;
     }
 
-    await sendTelegramMessage(token, chatId, replyText, messageId);
+    // 1) Append message to chat history (TTL 5 min)
+    await appendChatHistory(chatId, username, message.text);
+
+    // 2) Only call OpenAI when a trigger matches
+    const category = getTriggerCategory(message.text);
+    if (!category) {
+      res.status(200).send("OK");
+      return;
+    }
+
+    // 3) Get last 5 messages for context
+    const recentMessages = await getChatHistory(chatId);
+
+    // 4) For vulgar category: is user in frequent vulgar/mean group?
+    const frequentVulgar =
+      category === "vulgar" ? await isFrequentVulgar(userId) : false;
+
+    let replyText = null;
+    let usedFallback = false;
+
+    try {
+      replyText = await getReply(
+        category,
+        recentMessages,
+        message.text,
+        frequentVulgar,
+      );
+    } catch (openaiErr) {
+      console.error("OpenAI request failed, using static fallback:", openaiErr);
+      usedFallback = true;
+      replyText = getReplyForMessage(message.text);
+    }
+
+    // 6) If OpenAI failed: fall back to static KEYWORD_REPLIES
+    if (usedFallback && replyText) {
+      await sendTelegramMessage(token, chatId, replyText, messageId);
+      res.status(200).send("OK");
+      return;
+    }
+
+    // 7) If OpenAI succeeded and not NOREPLY: send reply; track vulgar count
+    if (replyText && replyText.toUpperCase() !== NOREPLY) {
+      await sendTelegramMessage(token, chatId, replyText, messageId);
+      if (category === "vulgar") {
+        await incrVulgarCount(userId);
+      }
+    }
   } catch (err) {
     console.error("Webhook error:", err);
   }
