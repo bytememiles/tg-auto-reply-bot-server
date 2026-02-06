@@ -233,7 +233,10 @@ module.exports = async function handler(req, res) {
       try {
         replyText = await getReplyBotIdentity(message.text, isNoisyUser);
       } catch (openaiErr) {
-        console.error("OpenAI getReplyBotIdentity failed:", openaiErr);
+        console.error(
+          "OpenAI getReplyBotIdentity failed (using static fallback):",
+          openaiErr?.message || openaiErr,
+        );
       }
       const toSend =
         replyText && replyText.toUpperCase() !== NOREPLY
@@ -257,7 +260,10 @@ module.exports = async function handler(req, res) {
     try {
       replyText = await getReply(category, message.text, isNoisyUser);
     } catch (openaiErr) {
-      console.error("OpenAI request failed, using static fallback:", openaiErr);
+      console.error(
+        "OpenAI request failed (using static fallback):",
+        openaiErr?.message || openaiErr,
+      );
       replyText = getReplyForMessage(message.text);
     }
 
