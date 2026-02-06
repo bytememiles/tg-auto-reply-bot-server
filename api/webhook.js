@@ -34,6 +34,8 @@ const KEYWORD_REPLIES = {
   bitch: "That's the best you got?",
   piss: "Language. Did your mom teach you that?",
   "piss off": "Cry more.",
+  // Bot-identity fallback when OpenAI fails or returns NOREPLY (e.g. "Hey, bot", "Hi bot")
+  bot: "I'm a watchdog bot — I reply when certain words show up or when you ask about me. What's up?",
   // When someone asks what the bot is for
   "this bot for":
     "I’m a little watchdog bot 🐶 I jump in when certain spicy words show up to help keep the chat friendly and drama-free.",
@@ -172,19 +174,7 @@ function getReplyForMessage(text) {
   return null;
 }
 
-const {
-  appendNoisyUserMessage,
-  getNoisyUserRecent,
-  clearNoisyUserBuffer,
-} = require("../lib/kv");
-const {
-  getReply,
-  getReplyNoisyUser,
-  getReplyBotIdentity,
-  NOREPLY,
-} = require("../lib/openai");
-
-const BURST_THRESHOLD = 2;
+const { getReply, getReplyBotIdentity, NOREPLY } = require("../lib/openai");
 
 function getNoisyUserIdsSet() {
   const envList = process.env.NOISY_USER_IDS;
@@ -234,53 +224,29 @@ module.exports = async function handler(req, res) {
     }
 
     const noisyUserIds = getNoisyUserIdsSet();
+    const isNoisyUser = noisyUserIds.has(String(userId));
 
-    // 1) Noisy user branch: batch messages, one evil/vulgar reply per burst
-    if (noisyUserIds.has(String(userId))) {
-      const count = await appendNoisyUserMessage(
-        chatId,
-        userId,
-        message.text,
-        messageId,
-      );
-      if (count >= BURST_THRESHOLD) {
-        const batch = await getNoisyUserRecent(chatId, userId);
-        if (batch.length >= BURST_THRESHOLD) {
-          try {
-            const replyText = await getReplyNoisyUser(batch);
-            const replyToId =
-              batch.length > 0 ? batch[batch.length - 1].messageId : messageId;
-            await sendTelegramMessage(token, chatId, replyText, replyToId);
-          } catch (openaiErr) {
-            console.error("OpenAI getReplyNoisyUser failed:", openaiErr);
-          }
-          await clearNoisyUserBuffer(chatId, userId);
-        }
-      }
-      res.status(200).send("OK");
-      return;
-    }
-
-    // 2) Bot-identity: message contains "bot" → analyze and reply
+    // 1) Bot-identity: message contains "bot" → analyze and reply (always send something)
     const normalizedText = normalizeForMatch(message.text);
     if (normalizedText.includes("bot")) {
+      let replyText = null;
       try {
-        const replyText = await getReplyBotIdentity(message.text);
-        if (replyText && replyText.toUpperCase() !== NOREPLY) {
-          await sendTelegramMessage(token, chatId, replyText, messageId);
-        }
+        replyText = await getReplyBotIdentity(message.text, isNoisyUser);
       } catch (openaiErr) {
         console.error("OpenAI getReplyBotIdentity failed:", openaiErr);
-        const fallback = getReplyForMessage(message.text);
-        if (fallback) {
-          await sendTelegramMessage(token, chatId, fallback, messageId);
-        }
+      }
+      const toSend =
+        replyText && replyText.toUpperCase() !== NOREPLY
+          ? replyText
+          : getReplyForMessage(message.text);
+      if (toSend) {
+        await sendTelegramMessage(token, chatId, toSend, messageId);
       }
       res.status(200).send("OK");
       return;
     }
 
-    // 3) Standard triggers (bot-positive, bot-negative, vulgar); no chat history
+    // 2) Standard triggers (bot-positive, bot-negative, vulgar); same OpenAI logic for everyone, stronger tone for noisy users
     const category = getTriggerCategory(message.text);
     if (!category) {
       res.status(200).send("OK");
@@ -288,22 +254,18 @@ module.exports = async function handler(req, res) {
     }
 
     let replyText = null;
-    let usedFallback = false;
     try {
-      replyText = await getReply(category, message.text);
+      replyText = await getReply(category, message.text, isNoisyUser);
     } catch (openaiErr) {
       console.error("OpenAI request failed, using static fallback:", openaiErr);
-      usedFallback = true;
       replyText = getReplyForMessage(message.text);
     }
 
-    if (usedFallback && replyText) {
-      await sendTelegramMessage(token, chatId, replyText, messageId);
-      res.status(200).send("OK");
-      return;
+    // Use static KEYWORD_REPLIES when OpenAI failed or returned NOREPLY (e.g. "dog" as pet)
+    if (!replyText || replyText.toUpperCase() === NOREPLY) {
+      replyText = getReplyForMessage(message.text);
     }
-
-    if (replyText && replyText.toUpperCase() !== NOREPLY) {
+    if (replyText) {
       await sendTelegramMessage(token, chatId, replyText, messageId);
     }
   } catch (err) {
